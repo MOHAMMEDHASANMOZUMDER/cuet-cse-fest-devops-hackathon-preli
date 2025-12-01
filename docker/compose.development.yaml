@@ -1,6 +1,100 @@
-# services:
-  # backend:
+services:
+  backend:
+    container_name: ecommerce-backend-dev
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    # Backend is NOT exposed externally - only accessible via internal network
+    expose:
+      - "3847"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - BACKEND_PORT=${BACKEND_PORT}
+      - MONGO_URI=${MONGO_URI}
+      - MONGO_DATABASE=${MONGO_DATABASE}
+    volumes:
+      # Mount source code for hot reload
+      - ../backend/src:/app/src:ro
+      - ../backend/package.json:/app/package.json:ro
+      - backend-node-modules:/app/node_modules
+    networks:
+      - ecommerce-network
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3847/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
-  # gateway:
+  gateway:
+    container_name: ecommerce-gateway-dev
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile.dev
+    ports:
+      # Only gateway is exposed externally
+      - "5921:5921"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - GATEWAY_PORT=${GATEWAY_PORT}
+      - BACKEND_URL=http://backend:3847
+    volumes:
+      # Mount source code for hot reload
+      - ../gateway/src:/app/src:ro
+      - ../gateway/package.json:/app/package.json:ro
+      - gateway-node-modules:/app/node_modules
+    networks:
+      - ecommerce-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5921/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
-  # mongo:
+  mongo:
+    container_name: ecommerce-mongo-dev
+    image: mongo:7-jammy
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
+    volumes:
+      # Persistent data storage
+      - mongo-data-dev:/data/db
+      - mongo-config-dev:/data/configdb
+    networks:
+      - ecommerce-network
+    # MongoDB is NOT exposed externally
+    expose:
+      - "27017"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  ecommerce-network:
+    driver: bridge
+    name: ecommerce-network-dev
+
+volumes:
+  mongo-data-dev:
+    name: ecommerce-mongo-data-dev
+  mongo-config-dev:
+    name: ecommerce-mongo-config-dev
+  backend-node-modules:
+    name: ecommerce-backend-node-modules-dev
+  gateway-node-modules:
+    name: ecommerce-gateway-node-modules-dev
